@@ -1,11 +1,9 @@
 ## universal-translator
-<img align="right" src="https://raw.githubusercontent.com/go-playground/universal-translator/master/logo.png">![Project status](https://img.shields.io/badge/version-0.17.0-green.svg)
-[![Build Status](https://travis-ci.org/go-playground/universal-translator.svg?branch=master)](https://travis-ci.org/go-playground/universal-translator)
+<img align="right" src="https://raw.githubusercontent.com/go-playground/universal-translator/master/logo.png">![Project status](https://img.shields.io/badge/version-0.18.1-green.svg)
 [![Coverage Status](https://coveralls.io/repos/github/go-playground/universal-translator/badge.svg)](https://coveralls.io/github/go-playground/universal-translator)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-playground/universal-translator)](https://goreportcard.com/report/github.com/go-playground/universal-translator)
 [![GoDoc](https://godoc.org/github.com/go-playground/universal-translator?status.svg)](https://godoc.org/github.com/go-playground/universal-translator)
 ![License](https://img.shields.io/dub/l/vibe-d.svg)
-[![Gitter](https://badges.gitter.im/go-playground/universal-translator.svg)](https://gitter.im/go-playground/universal-translator?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
 Universal Translator is an i18n Translator for Go/Golang using CLDR data + pluralization rules
 
@@ -18,7 +16,7 @@ use in your applications.
 
 Features
 --------
-- [x] Rules generated from the [CLDR](http://cldr.unicode.org/index/downloads) data, v30.0.3
+- [x] Rules generated from the [CLDR](http://cldr.unicode.org/index/downloads) data, v36.0.1
 - [x] Contains Cardinal, Ordinal and Range Plural Rules
 - [x] Contains Month, Weekday and Timezone translations built in
 - [x] Contains Date & Time formatting functions
@@ -51,7 +49,7 @@ Please see https://godoc.org/github.com/go-playground/universal-translator for u
 
 File formatting
 --------------
-All types, Plain substitution, Cardinal, Ordinal and Range translations can all be contained withing the same file(s);
+All types, Plain substitution, Cardinal, Ordinal and Range translations can all be contained within the same file(s);
 they are only separated for easy viewing.
 
 ##### Examples:
@@ -83,6 +81,17 @@ Help With Tests
 ---------------
 To anyone interesting in helping or contributing, I sure could use some help creating tests for each language.
 Please see issue [here](https://github.com/go-playground/locales/issues/1) for details.
+
+Supported Go Versions
+---------------------
+This package is aligned with the [Go release policy](https://go.dev/doc/devel/release) in that support is guaranteed for 
+the two most recent major versions.
+
+This does not mean the package will not work with older versions of Go, only that we reserve the right to increase the 
+MSGV(Minimum Supported Go Version) when the need arises to address Security issues/patches, OS issues & support or newly 
+introduced functionality that would greatly benefit the maintenance and/or usage of this package.
+
+If and when the MSGV is increased it will be done so in a minimum of a `Minor` release bump.
 
 License
 ------

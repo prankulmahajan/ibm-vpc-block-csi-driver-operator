@@ -27,6 +27,7 @@ import (
 
 	"github.com/spf13/pflag"
 	"k8s.io/klog/v2"
+	netutils "k8s.io/utils/net"
 
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apiserver/pkg/server"
@@ -108,7 +109,7 @@ type GeneratableKeyCert struct {
 
 func NewSecureServingOptions() *SecureServingOptions {
 	return &SecureServingOptions{
-		BindAddress: net.ParseIP("0.0.0.0"),
+		BindAddress: netutils.ParseIPSloppy("0.0.0.0"),
 		BindPort:    443,
 		ServerCert: GeneratableKeyCert{
 			PairName:      "apiserver",
@@ -152,7 +153,7 @@ func (s *SecureServingOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.IPVar(&s.BindAddress, "bind-address", s.BindAddress, ""+
 		"The IP address on which to listen for the --secure-port port. The "+
 		"associated interface(s) must be reachable by the rest of the cluster, and by CLI/web "+
-		"clients. If blank or an unspecified address (0.0.0.0 or ::), all interfaces will be used.")
+		"clients. If blank or an unspecified address (0.0.0.0 or ::), all interfaces and IP address families will be used.")
 
 	desc := "The port on which to serve HTTPS with authentication and authorization."
 	if s.Required {

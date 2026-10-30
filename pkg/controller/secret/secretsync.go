@@ -115,7 +115,7 @@ func (c *SecretSyncController) sync(ctx context.Context, syncCtx factory.SyncCon
 		klog.V(2).ErrorS(err, "Error while extracting data from secret/cm")
 		return err
 	}
-	_, _, err = resourceapply.ApplySecret(c.kubeClient.CoreV1(), c.eventRecorder, driverSecret)
+	_, _, err = resourceapply.ApplySecret(ctx, c.kubeClient.CoreV1(), c.eventRecorder, driverSecret)
 	if err != nil {
 		klog.V(2).ErrorS(err, "Error while creating the secret")
 		return err
@@ -180,7 +180,9 @@ func (c *SecretSyncController) translateSecret(cloudSecret *v1.Secret, cloudConf
 	return &secret, nil
 }
 
-func getResourceID(resourceName, accountID, apiKey string) (string, error) {
+var getResourceID = getResourceIDFunc
+
+func getResourceIDFunc(resourceName, accountID, apiKey string) (string, error) {
 	serviceClientOptions := &resourcemanagerv2.ResourceManagerV2Options{
 		URL:           "https://resource-controller.cloud.ibm.com",
 		Authenticator: &core.IamAuthenticator{ApiKey: apiKey},

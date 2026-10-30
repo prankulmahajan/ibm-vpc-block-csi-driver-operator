@@ -3,6 +3,7 @@ package credentialsrequestcontroller
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -12,12 +13,18 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	opv1 "github.com/openshift/api/operator/v1"
+	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
+	operatorv1lister "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+)
+
+const (
+	clusterCloudCredentialName = "cluster"
 )
 
 // CredentialsRequestController is a simple controller that maintains a CredentialsRequest static manifest.
@@ -28,11 +35,15 @@ import (
 // <name>Degraded: produced when the sync() method returns an error.
 type CredentialsRequestController struct {
 	name            string
-	operatorClient  v1helpers.OperatorClient
+	operatorClient  v1helpers.OperatorClientWithFinalizers
 	targetNamespace string
 	manifest        []byte
 	dynamicClient   dynamic.Interface
+	operatorLister  operatorv1lister.CloudCredentialLister
+	hooks           []CredentialsRequestHook
 }
+
+type CredentialsRequestHook func(*opv1.OperatorSpec, *unstructured.Unstructured) error
 
 // NewCredentialsRequestController returns a CredentialsRequestController.
 func NewCredentialsRequestController(
@@ -40,8 +51,10 @@ func NewCredentialsRequestController(
 	targetNamespace string,
 	manifest []byte,
 	dynamicClient dynamic.Interface,
-	operatorClient v1helpers.OperatorClient,
+	operatorClient v1helpers.OperatorClientWithFinalizers,
+	operatorInformer operatorinformer.SharedInformerFactory,
 	recorder events.Recorder,
+	hooks ...CredentialsRequestHook,
 ) factory.Controller {
 	c := &CredentialsRequestController{
 		name:            name,
@@ -49,9 +62,12 @@ func NewCredentialsRequestController(
 		targetNamespace: targetNamespace,
 		manifest:        manifest,
 		dynamicClient:   dynamicClient,
+		operatorLister:  operatorInformer.Operator().V1().CloudCredentials().Lister(),
+		hooks:           hooks,
 	}
 	return factory.New().WithInformers(
 		operatorClient.Informer(),
+		operatorInformer.Operator().V1().CloudCredentials().Informer(),
 	).WithSync(
 		c.sync,
 	).ResyncEvery(
@@ -65,7 +81,7 @@ func NewCredentialsRequestController(
 }
 
 func (c CredentialsRequestController) sync(ctx context.Context, syncContext factory.SyncContext) error {
-	_, status, _, err := c.operatorClient.GetOperatorState()
+	spec, status, _, err := c.operatorClient.GetOperatorState()
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
@@ -73,7 +89,17 @@ func (c CredentialsRequestController) sync(ctx context.Context, syncContext fact
 		return err
 	}
 
-	cr, err := c.syncCredentialsRequest(status, syncContext)
+	clusterCloudCredential, err := c.operatorLister.Get(clusterCloudCredentialName)
+	if err != nil {
+		return err
+	}
+
+	// if clusterCloudCredential is in manual mode without STS, do not sync cloud credentials
+	if clusterCloudCredential.Spec.CredentialsMode == opv1.CloudCredentialsModeManual && os.Getenv("ROLEARN") == "" {
+		return nil
+	}
+
+	cr, err := c.syncCredentialsRequest(ctx, spec, status, syncContext)
 	if err != nil {
 		return err
 	}
@@ -103,6 +129,7 @@ func (c CredentialsRequestController) sync(ctx context.Context, syncContext fact
 	}
 
 	_, _, err = v1helpers.UpdateStatus(
+		ctx,
 		c.operatorClient,
 		v1helpers.UpdateConditionFn(availableCondition),
 		v1helpers.UpdateConditionFn(progressingCondition),
@@ -111,6 +138,8 @@ func (c CredentialsRequestController) sync(ctx context.Context, syncContext fact
 }
 
 func (c CredentialsRequestController) syncCredentialsRequest(
+	ctx context.Context,
+	spec *opv1.OperatorSpec,
 	status *opv1.OperatorStatus,
 	syncContext factory.SyncContext,
 ) (*unstructured.Unstructured, error) {
@@ -118,6 +147,12 @@ func (c CredentialsRequestController) syncCredentialsRequest(
 	err := unstructured.SetNestedField(cr.Object, c.targetNamespace, "spec", "secretRef", "namespace")
 	if err != nil {
 		return nil, err
+	}
+
+	for _, hook := range c.hooks {
+		if err := hook(spec, cr); err != nil {
+			return nil, err
+		}
 	}
 
 	var expectedGeneration int64 = -1
@@ -133,7 +168,7 @@ func (c CredentialsRequestController) syncCredentialsRequest(
 		expectedGeneration = generation.LastGeneration
 	}
 
-	cr, _, err = resourceapply.ApplyCredentialsRequest(c.dynamicClient, syncContext.Recorder(), cr, expectedGeneration)
+	cr, _, err = resourceapply.ApplyCredentialsRequest(ctx, c.dynamicClient, syncContext.Recorder(), cr, expectedGeneration)
 	return cr, err
 }
 

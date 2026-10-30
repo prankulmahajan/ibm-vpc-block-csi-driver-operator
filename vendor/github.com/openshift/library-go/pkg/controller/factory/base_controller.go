@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/robfig/cron"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
@@ -15,7 +16,7 @@ import (
 	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-
+	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	operatorv1helpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 )
@@ -130,9 +131,14 @@ func (c *baseController) Run(ctx context.Context, workers int) {
 	// runPeriodicalResync is independent from queue
 	if c.resyncEvery > 0 {
 		workerWg.Add(1)
+		if c.resyncEvery < 60*time.Second {
+			// Warn about too fast resyncs as they might drain the operators QPS.
+			// This event is cheap as it is only emitted on operator startup.
+			c.syncContext.Recorder().Warningf("FastControllerResync", "Controller %q resync interval is set to %s which might lead to client request throttling", c.name, c.resyncEvery)
+		}
 		go func() {
 			defer workerWg.Done()
-			c.runPeriodicalResync(ctx, c.resyncEvery)
+			wait.UntilWithContext(ctx, func(ctx context.Context) { c.syncContext.Queue().Add(DefaultQueueKey) }, c.resyncEvery)
 		}()
 	}
 
@@ -170,15 +176,6 @@ func (c *baseController) Sync(ctx context.Context, syncCtx SyncContext) error {
 	return c.sync(ctx, syncCtx)
 }
 
-func (c *baseController) runPeriodicalResync(ctx context.Context, interval time.Duration) {
-	if interval == 0 {
-		return
-	}
-	go wait.UntilWithContext(ctx, func(ctx context.Context) {
-		c.syncContext.Queue().Add(DefaultQueueKey)
-	}, interval)
-}
-
 // runWorker runs a single worker
 // The worker is asked to terminate when the passed context is cancelled and is given terminationGraceDuration time
 // to complete its shutdown.
@@ -202,7 +199,12 @@ func (c *baseController) runWorker(queueCtx context.Context) {
 // reconcile wraps the sync() call and if operator client is set, it handle the degraded condition if sync() returns an error.
 func (c *baseController) reconcile(ctx context.Context, syncCtx SyncContext) error {
 	err := c.sync(ctx, syncCtx)
-	return c.reportDegraded(ctx, err)
+	degradedErr := c.reportDegraded(ctx, err)
+	if apierrors.IsNotFound(degradedErr) && management.IsOperatorRemovable() {
+		// The operator tolerates missing CR, therefore don't report it up.
+		return err
+	}
+	return degradedErr
 }
 
 // degradedPanicHandler will go degraded on failures, then we should catch potential panics and covert them into bad status.
@@ -220,7 +222,7 @@ func (c *baseController) reportDegraded(ctx context.Context, reportedError error
 		return reportedError
 	}
 	if reportedError != nil {
-		_, _, updateErr := v1helpers.UpdateStatus(c.syncDegradedClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
+		_, _, updateErr := v1helpers.UpdateStatus(ctx, c.syncDegradedClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    c.name + "Degraded",
 			Status:  operatorv1.ConditionTrue,
 			Reason:  "SyncError",
@@ -231,7 +233,7 @@ func (c *baseController) reportDegraded(ctx context.Context, reportedError error
 		}
 		return reportedError
 	}
-	_, _, updateErr := v1helpers.UpdateStatus(c.syncDegradedClient,
+	_, _, updateErr := v1helpers.UpdateStatus(ctx, c.syncDegradedClient,
 		v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:   c.name + "Degraded",
 			Status: operatorv1.ConditionFalse,

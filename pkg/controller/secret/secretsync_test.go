@@ -1,7 +1,6 @@
 package secret
 
 import (
-	"bou.ke/monkey"
 	"fmt"
 	"github.com/IBM/ibm-vpc-block-csi-driver-operator/pkg/util"
 	k8v1 "k8s.io/api/core/v1"
@@ -181,9 +180,11 @@ func TestTranslateSecretSuccess(t *testing.T) {
 				},
 				Data: map[string]string{CloudConfigmapKey: "region = region1\ng2ResourceGroupName = testresource\naccountID = testaccount\n"},
 		}
-	monkey.Patch(getResourceID, func(resourceName, accountID, apiKey string) (string, error) {
+	origGetResourceID := getResourceID
+	defer func() { getResourceID = origGetResourceID }()
+	getResourceID = func(resourceName, accountID, apiKey string) (string, error) {
 		return resourceId, nil
-	})
+	}
 	got, err := c.translateSecret(cloudSecret, cloudConf)
 
 	if !reflect.DeepEqual(got, want) {
